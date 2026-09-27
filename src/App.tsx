@@ -138,7 +138,7 @@ function App() {
           ))}
         </nav>
         <div className="topbar-actions">
-          <div className="search-box"><Search size={15} /><input placeholder="Search..." aria-label="Search" /></div>
+          <div className="search-box"><Search size={15} /><input placeholder="Search datasets, columns, analysis..." aria-label="Search datasets, columns, analysis" /></div>
           <label className="dataset-switcher">
             <span>Dataset</span>
             <select aria-label="Select active dataset" value={activeDatasetId} onChange={(event) => { void handleDatasetSelection(event); }} title={datasetListError || undefined}>
@@ -222,16 +222,16 @@ function Dashboard({ onUpload, onPageChange }: { onUpload: () => void; onPageCha
     return () => { cancelled = true; };
   }, [activeDatasetId]);
 
-  if (!activeDatasetId) {
-    return <><PageHeading title="Data workspace" description="Analyze, clean, and understand your data in one workspace." action={<button className="primary-button" onClick={onUpload}><Plus size={16} /> Upload dataset</button>} /><EmptyDatasetState helper="Upload a dataset to see its profile, quality, and processing activity here." /></>;
-  }
-
   const rowCount = profile?.total_rows ?? dataset?.rows ?? 0;
   const columnCount = profile?.total_columns ?? dataset?.columns ?? 0;
 
+  if (!activeDatasetId) {
+    return <><DashboardHero filename="No dataset selected" rows={0} columns={0} status="Ready" onUpload={onUpload} /><EmptyDatasetState helper="Upload a dataset to see its profile, quality, and processing activity here." /></>;
+  }
+
   return (
     <>
-      <PageHeading title="Data workspace" description="Analyze, clean, and understand your data in one workspace." action={<button className="primary-button" onClick={onUpload}><Plus size={16} /> Upload dataset</button>} />
+      <DashboardHero filename={dataset?.filename || activeDatasetId} rows={rowCount} columns={columnCount} status={dataset?.processing_status || 'Loaded'} onUpload={onUpload} />
       {error && <section className="panel"><p role="alert">{error}</p></section>}
       <div className="stat-grid">
         <StatCard icon={Database} iconClass="blue" value={rowCount.toLocaleString()} label="Rows" note="Records in active dataset" />
@@ -253,6 +253,23 @@ function Dashboard({ onUpload, onPageChange }: { onUpload: () => void; onPageCha
       <div className="tip-banner"><div className="tip-icon"><Sparkles size={18} /></div><div><strong>Get more from your data</strong><span>Use the preprocessing tools to clean, transform, and prepare your dataset before analysis.</span></div><button className="secondary-button" onClick={() => onPageChange('Preprocess')}>Explore tools <ChevronRight size={14} /></button></div>
     </>
   );
+}
+
+function DashboardHero({ filename, rows, columns, status, onUpload }: { filename: string; rows: number; columns: number; status: string; onUpload: () => void }) {
+  return <section className="dashboard-hero">
+    <div className="dashboard-hero-copy">
+      <div className="eyebrow">WELCOME TO DATAINSIGHT STUDIO</div>
+      <h1>Turn Your Data Into <span>Meaningful Insights</span></h1>
+      <p>Upload, explore, clean, analyze, and visualize your data in one workspace.</p>
+    </div>
+    <div className="dashboard-hero-visual" aria-hidden="true"><i /><i /><i /><i /><i /></div>
+    <div className="dashboard-hero-dataset">
+      <div className="file-icon green"><FileSpreadsheet size={18} /></div>
+      <div><span>ACTIVE DATASET</span><strong>{filename}</strong><small>{rows.toLocaleString()} rows · {columns.toLocaleString()} columns</small></div>
+      <span className="ready-tag">{status}</span>
+    </div>
+    <button className="primary-button dashboard-upload-button" onClick={onUpload}><Plus size={16} /> Upload dataset</button>
+  </section>;
 }
 
 function StatCard({ icon: Icon, iconClass, value, label, note }: { icon: IconType; iconClass: string; value: string; label: string; note: string }) { return <div className="stat-card"><div className={`stat-icon ${iconClass}`}><Icon size={18} /></div><div><span>{label}</span><strong>{value}</strong><small>{note}</small></div></div>; }

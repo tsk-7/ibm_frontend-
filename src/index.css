@@ -3,9 +3,9 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { font-family: 'DM Sans', sans-serif; color: #182238; background: #f5f8fc; font-synthesis: none; }
+:root { --primary-green: #14532d; --primary-green-dark: #0f3d22; --secondary-green: #16a34a; --green-light: #dcfce7; --green-wash: #f0fdf4; --background: #f7f8f4; --surface: #fff; --surface-hover: #f0fdf4; --text-primary: #17251b; --text-secondary: #647067; --border: #e4e9e3; --warning: #f59e0b; --danger: #ef4444; --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px; --shadow-sm: 0 2px 10px #193b2410; --shadow-md: 0 8px 24px #193b2416; --transition-fast: 150ms ease-out; --transition-normal: 200ms ease-out; font-family: 'DM Sans', sans-serif; color: var(--text-primary); background: var(--background); font-synthesis: none; }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; background: #f5f8fc; }
+body { margin: 0; min-width: 320px; background: var(--background); }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 
