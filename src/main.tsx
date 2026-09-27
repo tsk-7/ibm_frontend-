@@ -4,6 +4,7 @@ import App from './App.tsx';
 import { DatasetProvider } from './context/DatasetContext';
 import './index.css';
 import './assistant.css';
+import './layout.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -1,5 +1,6 @@
 import { Bot, UserRound } from 'lucide-react';
 import type { ChatTurn } from './assistantApi';
+import { Citation } from './Citation';
 
 export function ChatMessage({ turn }: { turn: ChatTurn }) {
   const isUser = turn.role === 'user';
@@ -9,7 +10,7 @@ export function ChatMessage({ turn }: { turn: ChatTurn }) {
       <div className="assistant-message-label">{isUser ? 'You' : 'DataInsight Assistant'}</div>
       <div className="assistant-message-content">{turn.content}</div>
       {turn.toolsUsed && turn.toolsUsed.length > 0 && <div className="assistant-tool-tags">{turn.toolsUsed.map((tool) => <span key={tool}>{tool.split('_').join(' ')}</span>)}</div>}
-      {turn.citations && turn.citations.length > 0 && <div className="assistant-citations"><strong>Knowledge source</strong>{turn.citations.slice(0, 3).map((citation) => <span key={`${citation.document}-${citation.section}`}>{citation.category ? `${citation.category} → ` : ''}{citation.document.replace('.md', '')}</span>)}</div>}
+      {turn.citations && turn.citations.length > 0 && <div className="assistant-citations"><strong>Knowledge source</strong>{turn.citations.slice(0, 3).map((citation) => <Citation key={`${citation.source}-${citation.chunk_id || citation.title}`} citation={citation} />)}</div>}
     </div>
   </div>;
 }

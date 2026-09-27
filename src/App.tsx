@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import {
   AlertCircle,
   ArrowUpRight,
@@ -18,7 +18,6 @@ import {
   LayoutDashboard,
   LineChart,
   Menu,
-  MoreHorizontal,
   Plus,
   Search,
   Settings,
@@ -31,7 +30,7 @@ import {
 } from 'lucide-react';
 import { DataInsightAssistant } from './components/assistant';
 import { useDataset } from './context/DatasetContext';
-import { downloadDataset, getDatasetPreview, getDatasetProfile, uploadDataset } from './services/datasetService';
+import { downloadDataset, getDataset, getDatasets, getDatasetPreview, getDatasetProfile, uploadDataset } from './services/datasetService';
 import { getHealth } from './services/healthService';
 import { getHistory } from './services/historyService';
 import { getStatistics } from './services/statisticsService';
@@ -54,18 +53,35 @@ const navItems: { label: Page; icon: IconType }[] = [
 ];
 
 function App() {
-  const { activeDatasetId, dataset, setActiveDatasetId, loadDataset } = useDataset();
+  const { activeDatasetId, dataset, setActiveDatasetId, setDataset, loadDataset } = useDataset();
   const [page, setPage] = useState<Page>('Dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [availableDatasets, setAvailableDatasets] = useState<{ dataset_id: string; filename: string }[]>([]);
+  const [datasetListError, setDatasetListError] = useState('');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [notice, setNotice] = useState('');
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [dataRevision, setDataRevision] = useState(0);
 
   const resolvedDatasetId = activeDatasetId;
 
+  useEffect(() => {
+    let cancelled = false;
+    getDatasets().then((result: { dataset_id: string; filename: string }[]) => {
+      if (!cancelled) {
+        setAvailableDatasets(Array.isArray(result) ? result : []);
+        setDatasetListError('');
+      }
+    }).catch((requestError: Error) => {
+      if (!cancelled) setDatasetListError(requestError.message);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   const handlePageChange = (nextPage: Page) => {
     setPage(nextPage);
-    setSidebarOpen(false);
+    setMobileNavOpen(false);
   };
 
   const showNotice = (message: string) => {
@@ -81,71 +97,90 @@ function App() {
     showNotice('Dataset uploaded successfully.');
   };
 
+  const handleUploadFile = async (file: File) => {
+    const extension = file.name.toLowerCase();
+    if (!/\.(csv|xlsx|xls)$/i.test(extension)) throw new Error('Please upload a CSV or Excel file.');
+    if (file.size > 50 * 1024 * 1024) throw new Error('Files must be 50 MB or smaller.');
+    const response = await uploadDataset(file);
+    if (!response.dataset_id) throw new Error('The backend did not return a dataset ID.');
+    await handleUploadComplete(response.dataset_id);
+  };
+
+  const handleDatasetSelection = async (event: ChangeEvent<HTMLSelectElement>) => {
+    const datasetId = event.target.value;
+    if (!datasetId || datasetId === activeDatasetId) return;
+    try {
+      const selectedDataset = await getDataset(datasetId);
+      setDataset(selectedDataset);
+      setActiveDatasetId(datasetId);
+      setAssistantOpen(false);
+      showNotice(`Selected ${selectedDataset.filename}.`);
+    } catch (requestError) {
+      showNotice(requestError instanceof Error ? requestError.message : 'Could not load the selected dataset.');
+    }
+  };
+
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
-        <div className="brand">
+      <header className="topbar">
+        <div className="topbar-brand">
           <div className="brand-mark"><Database size={17} /></div>
           <div><strong>DataInsight</strong><span>Studio</span></div>
-          <button className="close-sidebar" onClick={() => setSidebarOpen(false)} aria-label="Close menu"><X size={18} /></button>
         </div>
-        <div className="workspace-label">WORKSPACE</div>
-        <nav className="main-nav">
+        <button className="mobile-menu" onClick={() => setMobileNavOpen(!mobileNavOpen)} aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileNavOpen}>
+          {mobileNavOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+        <nav className={`topnav-links ${mobileNavOpen ? 'topnav-links-open' : ''}`} aria-label="Main navigation">
           {navItems.map(({ label, icon: Icon }) => (
-            <button key={label} className={`nav-item ${page === label ? 'active' : ''}`} onClick={() => handlePageChange(label)}>
-              <Icon size={16} strokeWidth={1.8} /><span>{label}</span>
-              {label === 'Dataset' && <span className="nav-dot" />}
+            <button key={label} className={`topnav-item ${page === label ? 'active' : ''}`} onClick={() => handlePageChange(label)} aria-current={page === label ? 'page' : undefined}>
+              <Icon size={15} strokeWidth={1.8} /><span>{label === 'Upload Dataset' ? 'Upload' : label}</span>
             </button>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <button className="nav-item" onClick={() => showNotice('Settings are ready for your workspace.')}><Settings size={16} /><span>Settings</span></button>
-          <button className="nav-item" onClick={() => showNotice('Help center opened.')}><CircleHelp size={16} /><span>Help & support</span></button>
-          <div className="sidebar-user">
-            <div className="avatar small">A</div><div><strong>Alex Morgan</strong><span>Analyst account</span></div><MoreHorizontal size={16} />
+        <div className="topbar-actions">
+          <div className="search-box"><Search size={15} /><input placeholder="Search..." aria-label="Search" /></div>
+          <label className="dataset-switcher">
+            <span>Dataset</span>
+            <select aria-label="Select active dataset" value={activeDatasetId} onChange={(event) => { void handleDatasetSelection(event); }} title={datasetListError || undefined}>
+              <option value="">None selected</option>
+              {activeDatasetId && !availableDatasets.some((item) => item.dataset_id === activeDatasetId) && <option value={activeDatasetId}>{dataset?.filename || activeDatasetId}</option>}
+              {availableDatasets.map((item) => <option key={item.dataset_id} value={item.dataset_id}>{item.filename}</option>)}
+            </select>
+            <span className={`status-dot ${datasetListError ? 'status-dot-error' : ''}`} aria-hidden="true" />
+          </label>
+          <button className="icon-button" onClick={() => showNotice('You are all caught up.')} aria-label="Notifications"><Bell size={17} /><i /></button>
+          <div className="profile-menu-wrap">
+            <button className="profile-button" onClick={() => setProfileMenuOpen(!profileMenuOpen)} aria-expanded={profileMenuOpen} aria-haspopup="menu"><div className="avatar">A</div><span>Analyst</span><ChevronDown size={13} /></button>
+            {profileMenuOpen && <div className="profile-menu" role="menu">
+              <button role="menuitem" onClick={() => { showNotice('Settings are ready for your workspace.'); setProfileMenuOpen(false); }}><Settings size={15} />Settings</button>
+              <button role="menuitem" onClick={() => { showNotice('Help center opened.'); setProfileMenuOpen(false); }}><CircleHelp size={15} />Help &amp; support</button>
+            </div>}
           </div>
         </div>
-      </aside>
-
+      </header>
       <main className="main-area">
-        <header className="topbar">
-          <button className="mobile-menu" onClick={() => setSidebarOpen(true)} aria-label="Open menu"><Menu size={21} /></button>
-          <div className="breadcrumbs"><span>Workspace</span><ChevronRight size={14} /><strong>{page}</strong></div>
-          <div className="topbar-actions">
-            <div className="search-box"><Search size={15} /><input placeholder="Search..." aria-label="Search" /></div>
-            <div className="dataset-pill"><span>Dataset:</span> {dataset?.filename || resolvedDatasetId} <span className="status-dot" /></div>
-            <button className="icon-button" onClick={() => showNotice('You are all caught up.')} aria-label="Notifications"><Bell size={17} /><i /></button>
-            <button className="profile-button"><div className="avatar">A</div><span>Analyst</span><ChevronDown size={13} /></button>
-          </div>
-        </header>
-
-        <div className="content-wrap">
+        <div className="content-wrap page-view" key={`${page}-${page === 'AI Assistant' ? 0 : dataRevision}`}>
           {page === 'Dashboard' && <Dashboard onUpload={() => setShowUpload(true)} onPageChange={handlePageChange} />}
-          {page === 'Upload Dataset' && <UploadPage onUpload={() => setShowUpload(true)} onNotice={showNotice} />}
+          {page === 'Upload Dataset' && <UploadPage onUpload={() => setShowUpload(true)} onUploadFile={handleUploadFile} onNotice={showNotice} />}
           {page === 'Dataset' && <DatasetPage />}
           {page === 'Preprocess' && <PreprocessPage onNotice={showNotice} />}
           {page === 'Visualization' && <VisualizationPage />}
           {page === 'Statistics' && <StatisticsPage datasetId={activeDatasetId} />}
           {page === 'Data Health' && <HealthPage datasetId={activeDatasetId} />}
           {page === 'History' && <HistoryPage datasetId={activeDatasetId} />}
-          {page === 'AI Assistant' && (
-            resolvedDatasetId ? <DataInsightAssistant datasetId={resolvedDatasetId} fullPage /> : <EmptyDatasetState helper="Upload a dataset to use the AI Assistant." />
-          )}
+          {page === 'AI Assistant' && <DataInsightAssistant key={resolvedDatasetId || 'general'} datasetId={resolvedDatasetId || null} fullPage onDataChanged={() => setDataRevision((revision) => revision + 1)} />}
         </div>
       </main>
 
-      {showUpload && <UploadModal onClose={() => setShowUpload(false)} onUploaded={handleUploadComplete} />}
-      {page !== 'AI Assistant' && (
-        <button className="assistant-launcher" onClick={() => {
-          if (resolvedDatasetId) setAssistantOpen(true);
-          else showNotice('Upload a dataset to use the AI Assistant.');
+      {showUpload && <UploadModal onClose={() => setShowUpload(false)} onUploadFile={handleUploadFile} />}
+      <button className="assistant-launcher" onClick={() => {
+          setAssistantOpen(true);
         }} aria-label="Open AI Assistant">
           <Bot size={18} /><span>AI Assistant</span>
-        </button>
-      )}
-      {assistantOpen && resolvedDatasetId && (
+      </button>
+      {assistantOpen && (
         <div className="assistant-drawer-backdrop" onClick={() => setAssistantOpen(false)}>
-          <div className="assistant-drawer" onClick={(event) => event.stopPropagation()}><DataInsightAssistant datasetId={resolvedDatasetId} onClose={() => setAssistantOpen(false)} /></div>
+          <div className="assistant-drawer" onClick={(event) => event.stopPropagation()}><DataInsightAssistant key={resolvedDatasetId || 'general'} datasetId={resolvedDatasetId || null} onDataChanged={() => setDataRevision((revision) => revision + 1)} onClose={() => setAssistantOpen(false)} /></div>
         </div>
       )}
       {notice && <div className="toast"><CheckCircle2 size={17} />{notice}</div>}
@@ -224,7 +259,31 @@ function StatCard({ icon: Icon, iconClass, value, label, note }: { icon: IconTyp
 function PanelTitle({ title, action }: { title: string; action?: ReactNode }) { return <div className="panel-title"><h2>{title}</h2>{action}</div>; }
 function QuickAction({ icon: Icon, title, onClick }: { icon: IconType; title: string; onClick: () => void }) { return <button className="quick-action" onClick={onClick}><div><Icon size={17} /></div><span>{title}</span><ChevronRight size={14} /></button>; }
 
-function UploadPage({ onUpload, onNotice }: { onUpload: () => void; onNotice: (message: string) => void }) { return <><PageHeading title="Upload dataset" description="Add a CSV or Excel file to start analyzing your data." /><div className="upload-layout"><section className="panel upload-card"><div className="drop-zone" onClick={onUpload}><div className="upload-icon"><UploadCloud size={28} /></div><h2>Drag & drop your dataset here</h2><p>or <button className="inline-link" onClick={onUpload}>browse files</button> from your computer</p><span>Supported formats: CSV, XLSX, XLS <i /> Maximum file size: 50 MB</span></div><div className="upload-history"><div className="file-row"><div className="file-icon green"><FileSpreadsheet size={20} /></div><div><strong>sales_data.xlsx</strong><span>Ready for upload</span></div><span className="ready-tag">Ready</span></div><button className="icon-button" onClick={() => onNotice('File options opened.')} aria-label="File options"><MoreHorizontal size={17} /></button></div></section><section className="panel guide-card"><div className="tip-icon"><Sparkles size={18} /></div><h2>Make your dataset analysis-ready</h2><p>For the best results, make sure your file has clear column names, one header row, and consistent data types.</p><div className="guide-item"><Check size={14} /> Keep each row as one record</div><div className="guide-item"><Check size={14} /> Use descriptive column names</div><div className="guide-item"><Check size={14} /> Remove sensitive information</div></section></div></>; }
+function UploadPage({ onUpload, onUploadFile, onNotice }: { onUpload: () => void; onUploadFile: (file: File) => Promise<void>; onNotice: (message: string) => void }) {
+  const { dataset } = useDataset();
+  const [dragging, setDragging] = useState(false);
+
+  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragging(false);
+    const file = event.dataTransfer.files[0];
+    if (!file) return;
+    try {
+      await onUploadFile(file);
+    } catch (uploadError) {
+      onNotice(uploadError instanceof Error ? uploadError.message : 'Unable to upload dataset.');
+    }
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onUpload();
+    }
+  };
+
+  return <><PageHeading title="Upload dataset" description="Add a CSV or Excel file to start analyzing your data." /><div className="upload-layout"><section className="panel upload-card"><div className={`drop-zone ${dragging ? 'drag-active' : ''}`} role="button" tabIndex={0} aria-label="Choose or drop a dataset file" onClick={onUpload} onKeyDown={handleKeyDown} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={(event) => { void handleDrop(event); }}><div className="upload-icon"><UploadCloud size={28} /></div><h2>Drag &amp; drop your dataset here</h2><p>or <span className="inline-link">browse files</span> from your computer</p><span>Supported formats: CSV, XLSX, XLS <i /> Maximum file size: 50 MB</span></div><div className="upload-history">{dataset ? <><div className="file-row"><div className="file-icon green"><FileSpreadsheet size={20} /></div><div><strong>{dataset.filename}</strong><span>Active dataset</span></div><span className="ready-tag">Loaded</span></div></> : <p className="muted">Your active dataset will appear here after upload.</p>}</div></section><section className="panel guide-card"><div className="tip-icon"><Sparkles size={18} /></div><h2>Make your dataset analysis-ready</h2><p>For the best results, make sure your file has clear column names, one header row, and consistent data types.</p><div className="guide-item"><Check size={14} /> Keep each row as one record</div><div className="guide-item"><Check size={14} /> Use descriptive column names</div><div className="guide-item"><Check size={14} /> Remove sensitive information</div></section></div></>;
+}
 
 function DatasetPage() {
   const { activeDatasetId } = useDataset();
@@ -390,25 +449,17 @@ function HistoryPage({ datasetId }: { datasetId: string | null }) {
   return <><PageHeading title="Processing history" description="Track all operations performed on your dataset." action={<button className="secondary-button" onClick={exportHistory} disabled={!entries.length}><Download size={15} /> Export history</button>} /><section className="panel history-panel">{error && <p role="alert">{error}</p>}{!error && !entries.length && <p>No processing operations have been recorded yet.</p>}{entries.map((entry) => <div className="history-row" key={entry.id}><time>{new Date(entry.timestamp).toLocaleString()}</time><div className="timeline-icon blue"><CheckCircle2 size={15} /></div><div><strong>{entry.operation.replace(/_/g, ' ')}</strong><span>{entry.details || [entry.column_name, `${entry.rows_before} to ${entry.rows_after} rows`].filter(Boolean).join(' · ')}</span></div><span className="success-tag"><Check size={11} /> Success</span></div>)}</section></>;
 }
 
-function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded: (datasetId: string) => Promise<void> | void }) {
+function UploadModal({ onClose, onUploadFile }: { onClose: () => void; onUploadFile: (file: File) => Promise<void> }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
   const onFileSelected = async (file?: File | null) => {
     if (!file) return;
 
-    const extension = file.name.toLowerCase();
-    if (!/\.(csv|xlsx|xls)$/i.test(extension)) {
-      window.alert('Please upload a CSV or Excel file.');
-      return;
-    }
-
     setUploading(true);
     try {
-      const response = await uploadDataset(file);
-      const datasetId = response.dataset_id;
-      if (!datasetId) throw new Error('The backend did not return a dataset ID.');
-      await onUploaded(datasetId);
+      await onUploadFile(file);
     } catch (error: unknown) {
       window.alert(error instanceof Error ? error.message : 'Unable to upload dataset.');
     } finally {
@@ -417,7 +468,7 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
     }
   };
 
-  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={(event) => event.stopPropagation()}><div className="modal-header"><div><div className="eyebrow">NEW DATASET</div><h2>Upload a dataset</h2></div><button className="icon-button" onClick={onClose} aria-label="Close upload dialog"><X size={18} /></button></div><input ref={inputRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={(event) => { void onFileSelected(event.target.files?.[0]); }} /><div className="modal-drop" onClick={() => inputRef.current?.click()}><UploadCloud size={26} /><strong>Drop your file here</strong><span>CSV, XLSX, or XLS up to 50 MB</span><button type="button" className="secondary-button" disabled={uploading}>{uploading ? 'Uploading...' : 'Browse files'}</button></div><div className="modal-footer"><button className="text-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={() => inputRef.current?.click()} disabled={uploading}>{uploading ? 'Uploading...' : 'Upload dataset'} <ArrowUpRight size={14} /></button></div></div></div>;
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={(event) => event.stopPropagation()}><div className="modal-header"><div><div className="eyebrow">NEW DATASET</div><h2>Upload a dataset</h2></div><button className="icon-button" onClick={onClose} aria-label="Close upload dialog"><X size={18} /></button></div><input ref={inputRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={(event) => { void onFileSelected(event.target.files?.[0]); }} /><div className={`modal-drop ${dragging ? 'drag-active' : ''}`} onClick={() => inputRef.current?.click()} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); void onFileSelected(event.dataTransfer.files[0]); }}><UploadCloud size={26} /><strong>Drop your file here</strong><span>CSV, XLSX, or XLS up to 50 MB</span><button type="button" className="secondary-button" disabled={uploading}>{uploading ? 'Uploading...' : 'Browse files'}</button></div><div className="modal-footer"><button className="text-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={() => inputRef.current?.click()} disabled={uploading}>{uploading ? 'Uploading...' : 'Upload dataset'} <ArrowUpRight size={14} /></button></div></div></div>;
 }
 
 export default App;
