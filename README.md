@@ -1,6 +1,6 @@
-# IBM DataInsight Studio Frontend
+# CleanVisual Frontend
 
-This Vite/React frontend now includes the **DataInsight Assistant** UI. The assistant communicates only with the FastAPI agent API; no OpenRouter credential is used in the browser.
+This Vite/React frontend now includes the **CleanVisual Assistant** UI. The assistant communicates only with the FastAPI agent API; no OpenRouter credential is used in the browser.
 
 ## Assistant integration
 

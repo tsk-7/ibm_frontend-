@@ -69,7 +69,7 @@ async function postAgentRequest<T>(path: string, payload: unknown, action: 'chat
         throw new Error('The AI service is temporarily unavailable. Please try again shortly.');
       }
       if (response.status >= 500) {
-        throw new Error('The DataInsight service is temporarily unavailable. Please try again shortly.');
+        throw new Error('The analytics service is temporarily unavailable. Please try again shortly.');
       }
       throw new Error(action === 'confirm'
         ? 'The confirmation could not be processed. Review the request and try again.'
@@ -79,11 +79,11 @@ async function postAgentRequest<T>(path: string, payload: unknown, action: 'chat
     return await response.json() as T;
   } catch (requestError) {
     if (requestError instanceof Error && requestError.message.startsWith('This confirmation')) throw requestError;
-    if (requestError instanceof Error && /^(The active dataset|The AI service|The DataInsight service|The confirmation|The assistant)/.test(requestError.message)) throw requestError;
+    if (requestError instanceof Error && /^(The active dataset|The AI service|The analytics service|The confirmation|The assistant)/.test(requestError.message)) throw requestError;
     if (requestError instanceof DOMException && requestError.name === 'AbortError') {
       throw new Error('The request timed out. Check the service and try again.');
     }
-    throw new Error('Could not connect to the DataInsight service. Check that the backend is running.');
+    throw new Error('Could not connect to the analytics service. Check that the backend is running.');
   } finally {
     window.clearTimeout(timeoutId);
   }

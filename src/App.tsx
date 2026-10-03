@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { DataInsightAssistant } from './components/assistant';
 import { useDataset } from './context/DatasetContext';
-import { downloadDataset, getDataset, getDatasets, getDatasetPreview, getDatasetProfile, uploadDataset } from './services/datasetService';
+import { downloadDataset, getDataset, getDatasets, getDatasetPreview, getDatasetProfile, uploadDataset, type DatasetProfile } from './services/datasetService';
 import { getHealth } from './services/healthService';
 import { getHistory } from './services/historyService';
 import { getStatistics } from './services/statisticsService';
@@ -125,7 +125,7 @@ function App() {
       <header className="topbar">
         <div className="topbar-brand">
           <div className="brand-mark"><Database size={17} /></div>
-          <div><strong>DataInsight</strong><span>Studio</span></div>
+          <div><strong>CleanVisual</strong><span>Analytics workspace</span></div>
         </div>
         <button className="mobile-menu" onClick={() => setMobileNavOpen(!mobileNavOpen)} aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileNavOpen}>
           {mobileNavOpen ? <X size={20} /> : <Menu size={20} />}
@@ -196,8 +196,6 @@ function EmptyDatasetState({ helper }: { helper: string }) {
   return <section className="panel" style={{ padding: '2rem' }}><div className="eyebrow">DATASET REQUIRED</div><h2>No dataset selected</h2><p>{helper}</p></section>;
 }
 
-type DatasetProfile = { total_rows: number; total_columns: number; missing_values: { total: number }; duplicate_rows: number };
-
 function Dashboard({ onUpload, onPageChange }: { onUpload: () => void; onPageChange: (page: Page) => void }) {
   const { activeDatasetId, dataset } = useDataset();
   const [profile, setProfile] = useState<DatasetProfile | null>(null);
@@ -258,7 +256,7 @@ function Dashboard({ onUpload, onPageChange }: { onUpload: () => void; onPageCha
 function DashboardHero({ filename, rows, columns, status, onUpload }: { filename: string; rows: number; columns: number; status: string; onUpload: () => void }) {
   return <section className="dashboard-hero">
     <div className="dashboard-hero-copy">
-      <div className="eyebrow">WELCOME TO DATAINSIGHT STUDIO</div>
+      <div className="eyebrow">WELCOME TO CLEANVISUAL</div>
       <h1>Turn Your Data Into <span>Meaningful Insights</span></h1>
       <p>Upload, explore, clean, analyze, and visualize your data in one workspace.</p>
     </div>
@@ -349,40 +347,72 @@ function DatasetPage() {
 }
 
 type StatisticsResponse = {
-  numerical: Record<string, { count: number; mean: number | null; median: number | null; minimum: number | null; maximum: number | null; standard_deviation: number | null }>;
-  categorical: Record<string, { unique_values: number; most_frequent_value: string | number | null; most_frequent_count: number }>;
+  numerical: Record<string, { count: number; mean: number | null; median: number | null; minimum: number | null; maximum: number | null; standard_deviation: number | null; q1?: number | null; q3?: number | null }>;
+  categorical: Record<string, { count?: number; unique_values: number; most_frequent_value: string | number | null; most_frequent_count: number }>;
 };
 
 function StatisticsPage({ datasetId }: { datasetId: string | null }) {
   const [statistics, setStatistics] = useState<StatisticsResponse | null>(null);
+  const [profile, setProfile] = useState<DatasetProfile | null>(null);
+  const [health, setHealth] = useState<HealthReport | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!datasetId) return;
     let cancelled = false;
-    getStatistics(datasetId).then((result: StatisticsResponse) => {
-      if (!cancelled) {
-        setStatistics(result);
-        setError('');
-      }
+    setLoading(true);
+    setError('');
+    Promise.all([getStatistics(datasetId), getDatasetProfile(datasetId), getHealth(datasetId)]).then(([nextStatistics, nextProfile, nextHealth]) => {
+      if (cancelled) return;
+      setStatistics(nextStatistics);
+      setProfile(nextProfile);
+      setHealth(nextHealth);
     }).catch((requestError: Error) => {
       if (!cancelled) setError(requestError.message);
-    });
+    }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [datasetId]);
 
   if (!datasetId) return <EmptyDatasetState helper="Upload a dataset to view its statistics." />;
-  if (error) return <><PageHeading title="Statistical analysis" description="Get detailed statistical insights about your dataset." /><section className="panel"><p role="alert">{error}</p></section></>;
+  if (error) return <><PageHeading title="Statistical analysis" description="Review calculations returned for the active dataset." /><section className="panel"><p role="alert">Unable to load the dataset statistics. Please try again.</p></section></>;
 
   const format = (value: number | null | undefined) => value == null ? '—' : value.toLocaleString(undefined, { maximumFractionDigits: 3 });
   const numericalRows = Object.entries(statistics?.numerical ?? {}).map(([column, values]) => [
-    column, format(values.count), format(values.mean), format(values.median), format(values.minimum), format(values.maximum), format(values.standard_deviation),
+    column,
+    format(values.count),
+    format(profile?.missing_values.by_column[column] ?? 0),
+    format(values.mean),
+    format(values.median),
+    format(values.standard_deviation),
+    format(values.standard_deviation == null ? null : values.standard_deviation ** 2),
+    format(values.minimum),
+    format(values.q1),
+    format(values.q3),
+    format(values.q1 == null || values.q3 == null ? null : values.q3 - values.q1),
+    format(values.maximum),
+    format(values.minimum == null || values.maximum == null ? null : values.maximum - values.minimum),
   ]);
   const categoricalRows = Object.entries(statistics?.categorical ?? {}).map(([column, values]) => [
-    column, format(values.unique_values), String(values.most_frequent_value ?? '—'), format(values.most_frequent_count),
+    column, format(values.count), format(profile?.missing_values.by_column[column] ?? 0), format(values.unique_values), String(values.most_frequent_value ?? '—'), format(values.most_frequent_count),
   ]);
 
-  return <><PageHeading title="Statistical analysis" description="Get detailed statistical insights about your dataset." /><div className="stats-layout"><section className="panel"><PanelTitle title="Numerical statistics" /><DataTable headers={['Column', 'Count', 'Mean', 'Median', 'Min', 'Max', 'Std dev']} rows={numericalRows} /></section><section className="panel"><PanelTitle title="Categorical statistics" /><DataTable headers={['Column', 'Unique values', 'Most common', 'Frequency']} rows={categoricalRows} /></section></div></>;
+  return <>
+    <PageHeading title="Statistical analysis" description="Review backend-calculated values for the active dataset." />
+    {loading ? <section className="panel page-loading" role="status"><span className="loading-indicator" />Calculating statistics…</section> : <>
+      <div className="stats-quality-strip" aria-label="Dataset-level quality context">
+        <div><span>Rows</span><strong>{format(profile?.total_rows)}</strong></div>
+        <div><span>Duplicate rows</span><strong>{format(profile?.duplicate_rows)}</strong></div>
+        <div><span>Missing cells</span><strong>{format(profile?.missing_values.total)}</strong></div>
+        <div><span>Outlier share</span><strong>{health ? `${format(health.outlier_percentage)}%` : '—'}</strong></div>
+      </div>
+      <div className="stats-layout">
+        <section className="panel"><PanelTitle title="Numerical statistics" /><DataTable headers={['Column', 'Count', 'Missing', 'Mean', 'Median', 'Std. dev.', 'Variance*', 'Min', 'Q1', 'Q3', 'IQR*', 'Max', 'Range*']} rows={numericalRows} /></section>
+        <section className="panel"><PanelTitle title="Categorical statistics" /><DataTable headers={['Column', 'Count', 'Missing', 'Unique', 'Mode', 'Frequency']} rows={categoricalRows} /></section>
+      </div>
+      <p className="calculation-note">* Variance, IQR, and range are derived from backend-returned standard deviation, quartiles, and bounds. Per-column outlier counts and z-scores are not provided by the current API.</p>
+    </>}
+  </>;
 }
 
 function DataTable({ headers, rows }: { headers: string[]; rows: string[][] }) { return <div className="compact-table-scroll"><table className="compact-table"><thead><tr>{headers.map((head) => <th key={head}>{head}</th>)}</tr></thead><tbody>{rows.map((row, idx) => <tr key={`${row[0] || idx}-${idx}`}>{row.map((cell, cellIndex) => <td className={cellIndex === 0 ? 'strong-cell' : ''} key={`${cell}-${cellIndex}`}>{cell}</td>)}</tr>)}</tbody></table></div>; }
@@ -399,37 +429,81 @@ type HealthReport = {
 
 function HealthPage({ datasetId }: { datasetId: string | null }) {
   const [report, setReport] = useState<HealthReport | null>(null);
+  const [profile, setProfile] = useState<DatasetProfile | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!datasetId) return;
     let cancelled = false;
-    getHealth(datasetId).then((result: HealthReport) => {
-      if (!cancelled) {
-        setReport(result);
-        setError('');
-      }
+    setLoading(true);
+    setError('');
+    Promise.all([getHealth(datasetId), getDatasetProfile(datasetId)]).then(([nextReport, nextProfile]) => {
+      if (cancelled) return;
+      setReport(nextReport);
+      setProfile(nextProfile);
     }).catch((requestError: Error) => {
       if (!cancelled) setError(requestError.message);
-    });
+    }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [datasetId]);
 
   if (!datasetId) return <EmptyDatasetState helper="Upload a dataset to check its data health." />;
-  if (error) return <><PageHeading title="Data health" description="Understand the quality and reliability of your dataset." /><section className="panel"><p role="alert">{error}</p></section></>;
+  if (error) return <><PageHeading title="Data health" description="Review dataset quality metrics returned by the backend." /><section className="panel"><p role="alert">Unable to load the data health report. Please try again.</p></section></>;
 
   const metrics = report ? [
     { label: 'Completeness', value: report.completeness, color: 'green' },
     { label: 'Consistency', value: report.consistency, color: 'blue' },
     { label: 'Validity', value: report.validity, color: 'orange' },
   ] : [];
-  const issues = report ? [
-    { title: 'Missing values', detail: 'Share of all dataset cells', value: report.missing_percentage, color: 'orange' },
-    { title: 'Duplicate rows', detail: 'Share of dataset rows', value: report.duplicate_percentage, color: 'red' },
-    { title: 'Numerical outliers', detail: 'Share of non-missing numerical values', value: report.outlier_percentage, color: 'blue' },
-  ] : [];
+  const columns = profile ? [...new Set([
+    ...profile.numerical_columns,
+    ...profile.categorical_columns,
+    ...profile.datetime_columns,
+    ...Object.keys(profile.data_types),
+  ])] : [];
+  const columnRows = columns.map((column) => {
+    const missing = profile?.missing_values.by_column[column] ?? 0;
+    return [column, profile?.data_types[column] || 'Unknown', missing.toLocaleString(), (profile?.unique_values[column] ?? '—').toLocaleString(), 'Not provided', missing > 0 ? 'Review missing values' : 'No missing values reported'];
+  });
+  const recommendations = [
+    ...(profile && profile.missing_values.total > 0 ? [`Review ${profile.missing_values.total.toLocaleString()} missing cells across the dataset.`] : []),
+    ...(profile && profile.duplicate_rows > 0 ? [`Review ${profile.duplicate_rows.toLocaleString()} duplicate rows before analysis.`] : []),
+    ...(report && report.outlier_percentage > 0 ? [`The backend reports an outlier share of ${report.outlier_percentage}%; inspect affected values before drawing conclusions.`] : []),
+    ...(!loading && profile && profile.missing_values.total === 0 && profile.duplicate_rows === 0 ? ['The backend reports no missing cells or duplicate rows. Review aggregate validity and consistency scores for remaining quality signals.'] : []),
+  ];
+  const score = report?.overall_score ?? 0;
+  const scoreDegrees = Math.max(0, Math.min(100, score)) * 3.6;
 
-  return <><PageHeading title="Data health" description="Understand the quality and reliability of your dataset." /><div className="health-grid"><section className="panel health-score"><div className="score-ring"><div><strong>{report?.overall_score ?? '...'}</strong><span>/100</span></div></div><div><div className="eyebrow">DATA HEALTH SCORE</div><h2>{report ? 'Dataset quality' : 'Loading health report'}</h2><p>{report ? 'Scores are calculated from the current processed dataset.' : ' '}</p></div></section>{metrics.map(({ label, value, color }) => <div className="panel health-stat" key={label}><div className={`health-stat-icon ${color}`}><ShieldCheck size={17} /></div><span>{label}</span><strong>{value}%</strong><div className="health-progress"><i className={color} style={{ width: `${value}%` }} /></div><small>Backend score</small></div>)}</div><section className="panel issues-table"><PanelTitle title="Quality indicators" />{issues.map(({ title, detail, value, color }) => <div className="health-issue" key={title}><div className={`health-issue-icon ${color}`}><AlertCircle size={15} /></div><div><strong>{title}</strong><span>{detail}</span></div><b>{value}%</b></div>)}</section></>;
+  return <>
+    <PageHeading eyebrow="QUALITY OVERVIEW" title="Data health" description="A dataset-level view of quality metrics and backend-reported column issues." />
+    {loading ? <section className="panel page-loading" role="status"><span className="loading-indicator" />Analyzing dataset health…</section> : report && profile && <>
+      <div className="health-overview">
+        <section className="panel health-score">
+          <div className="score-ring" style={{ background: `conic-gradient(var(--primary-green) 0deg ${scoreDegrees}deg, var(--border) ${scoreDegrees}deg 360deg)` }}><div><strong>{report.overall_score}</strong><span>/100</span></div></div>
+          <div><div className="eyebrow">OVERALL HEALTH</div><h2>Dataset quality score</h2><p>Calculated by the backend for the current processed dataset.</p></div>
+        </section>
+        {metrics.map(({ label, value, color }) => <div className="panel health-stat" key={label}><div className={`health-stat-icon ${color}`}><ShieldCheck size={17} /></div><span>{label}</span><strong>{value}%</strong><div className="health-progress"><i className={color} style={{ width: `${value}%` }} /></div><small>Backend score</small></div>)}
+      </div>
+      <section className="panel health-indicators">
+        <PanelTitle title="Quality indicators" />
+        <div className="health-indicator-grid">
+          <div><span>Missing cells</span><strong>{profile.missing_values.total.toLocaleString()}</strong><small>{report.missing_percentage}% of dataset cells</small></div>
+          <div><span>Duplicate rows</span><strong>{profile.duplicate_rows.toLocaleString()}</strong><small>{report.duplicate_percentage}% of dataset rows</small></div>
+          <div><span>Outlier share</span><strong>{report.outlier_percentage}%</strong><small>Aggregate value from backend; column detail unavailable</small></div>
+          <div><span>Invalid values</span><strong>Not provided</strong><small>The current health API does not return this count</small></div>
+        </div>
+      </section>
+      <section className="panel health-columns">
+        <div className="health-section-heading"><div><h2>Column-level health</h2><p>{columns.length} columns described by the current dataset profile.</p></div><span>Outliers per column are not available from the current API.</span></div>
+        {columnRows.length ? <div className="compact-table-scroll"><table className="compact-table health-table"><thead><tr>{['Column name', 'Data type', 'Missing', 'Unique', 'Outliers', 'Quality status'].map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{columnRows.map((row, index) => <tr key={`${row[0]}-${index}`}>{row.map((cell, cellIndex) => <td className={cellIndex === 0 ? 'strong-cell' : ''} key={`${cellIndex}-${cell}`}>{cell}</td>)}</tr>)}</tbody></table></div> : <p className="muted">No column metadata was returned for this dataset.</p>}
+      </section>
+      <section className="panel health-recommendations">
+        <PanelTitle title="Recommendations" />
+        {recommendations.length ? <ul>{recommendations.map((recommendation) => <li key={recommendation}><span aria-hidden="true">i</span>{recommendation}</li>)}</ul> : <p className="muted">No dataset health recommendations are available.</p>}
+      </section>
+    </>}
+  </>;
 }
 
 type HistoryEntry = { id: number; operation: string; column_name: string | null; rows_before: number; rows_after: number; details: string | null; timestamp: string };

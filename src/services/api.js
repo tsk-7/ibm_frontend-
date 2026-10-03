@@ -22,13 +22,13 @@ api.interceptors.response.use(
 );
 
 export const getApiErrorMessage = (error) => {
-  if (!error) return 'Unable to connect to DataInsight backend.';
+  if (!error) return 'Unable to reach the analytics service.';
   if (error.status === 404) return 'Dataset is no longer available.';
   if (error.status === 400 || error.status === 422) return error.message || 'The request could not be processed.';
-  if (error.status === 500) return 'Unable to connect to DataInsight backend.';
-  if (error.message && error.message.includes('Network Error')) return 'Unable to connect to DataInsight backend.';
+  if (error.status === 500) return 'The analytics service could not complete the request.';
+  if (error.message && error.message.includes('Network Error')) return 'Unable to reach the analytics service.';
   if (error.message && error.message.includes('not found')) return 'Dataset is no longer available.';
-  return error.message || 'Unable to connect to DataInsight backend.';
+  return error.message || 'Unable to reach the analytics service.';
 };
 
 export default api;
