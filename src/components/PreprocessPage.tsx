@@ -3,7 +3,7 @@ import { AlertCircle, ArrowRight, CheckCircle2, Database, GitBranch, Plus, Trash
 import { useDataset } from '../context/DatasetContext';
 import { getDatasetPreview, getDatasetProfile, type DatasetProfile, type DatasetPreview } from '../services/datasetService';
 import { getStatistics, type StatisticsResponse } from '../services/statisticsService';
-import { createColumn, deleteColumn, processDtype, processDuplicateRows, processMissingValues, renameColumn } from '../services/preprocessingService';
+import { createColumn, deleteColumn, previewDuplicateRows, processDtype, processDuplicateRows, processMissingValues, renameColumn } from '../services/preprocessingService';
 
 const DATA_TYPES = ['integer', 'float', 'string', 'boolean', 'datetime'];
 const MISSING_METHODS = ['remove_rows', 'mean', 'median', 'mode', 'custom', 'ffill', 'bfill'];
@@ -35,6 +35,8 @@ export function PreprocessPage({ onNotice }: { onNotice: (message: string) => vo
   const [newColumnName, setNewColumnName] = useState('');
   const [expression, setExpression] = useState('');
   const [busy, setBusy] = useState(false);
+  const [duplicatePreview, setDuplicatePreview] = useState<{ duplicate_count?: number; normalized_cells?: number; estimated_rows_after_removal?: number } | null>(null);
+  const [duplicatePreviewLoading, setDuplicatePreviewLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -114,7 +116,34 @@ export function PreprocessPage({ onNotice }: { onNotice: (message: string) => vo
     if (!canApplyPreview) return;
     void runOperation(() => processMissingValues(activeDatasetId, { column: selectedColumn, method: missingMethod, ...(missingMethod === 'custom' ? { value: customValue } : {}) }), 'Missing values updated.');
   };
-  const removeDuplicates = () => void runOperation(() => processDuplicateRows(activeDatasetId, { action: 'remove' }), 'Duplicate rows removed.');
+  const removeDuplicates = async () => {
+    setDuplicatePreviewLoading(true);
+    setError('');
+    try {
+      const preview = await previewDuplicateRows(activeDatasetId, { case_insensitive: true });
+      setDuplicatePreview(preview);
+      const duplicateCount = Number(preview.duplicate_count ?? 0);
+      const normalizedCells = Number(preview.normalized_cells ?? 0);
+      if (!duplicateCount) {
+        onNotice('No exact or case-insensitive duplicate rows were found.');
+        return;
+      }
+      const confirmed = window.confirm(
+        `Normalize ${normalizedCells.toLocaleString()} case or whitespace variants and remove ` +
+        `${duplicateCount.toLocaleString()} exact duplicate rows after normalization?`
+      );
+      if (confirmed) {
+        await runOperation(
+          () => processDuplicateRows(activeDatasetId, { action: 'remove', case_insensitive: true }),
+          'Duplicate rows and case variants removed.'
+        );
+      }
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to inspect duplicate rows.');
+    } finally {
+      setDuplicatePreviewLoading(false);
+    }
+  };
   const convertType = () => void runOperation(() => processDtype(activeDatasetId, { column: selectedColumn, dtype: targetType }), 'Column type converted.');
   const rename = () => void runOperation(() => renameColumn(activeDatasetId, { old_name: selectedColumn, new_name: renamedColumn }), 'Column renamed.');
   const removeColumn = () => { if (window.confirm(`Delete the column "${selectedColumn}" from this dataset?`)) void runOperation(() => deleteColumn(activeDatasetId, selectedColumn), 'Column deleted.'); };
@@ -159,7 +188,7 @@ export function PreprocessPage({ onNotice }: { onNotice: (message: string) => vo
       {!canApplyPreview && <p className="preview-note" role="status">A backend replacement value is not available for this method and column. Choose another supported method or enter a custom value.</p>}
       <div className="button-row preview-actions"><button className="secondary-button" onClick={() => void createMissingPreview()} disabled={busy || previewLoading}>{previewLoading ? 'Refreshing...' : 'Refresh preview'}</button><button className="primary-button" onClick={applyMissing} disabled={busy || !canApplyPreview}>{busy ? 'Applying...' : 'Confirm and apply'}</button></div>
     </section>}
-    <div className="preprocess-secondary-grid"><section className="panel cleaning-card"><div className="card-heading"><div className="stat-icon orange"><GitBranch size={17} /></div><div><h2>Duplicate rows</h2><p>{profile?.duplicate_rows?.toLocaleString() ?? '—'} repeated records detected by the backend.</p></div></div><div className="warning-note">Removing duplicates modifies the active dataset.</div><button className="danger-button" onClick={removeDuplicates} disabled={busy || !profile?.duplicate_rows}>{busy ? 'Applying...' : 'Remove duplicates'}</button></section><section className="panel cleaning-card"><div className="card-heading"><div className="stat-icon teal"><WandSparkles size={17} /></div><div><h2>Data type conversion</h2><p>Make a selected column compatible with analysis.</p></div></div><div className="compact-form"><label>Column<select value={selectedColumn} onChange={(event) => setSelectedColumn(event.target.value)} disabled={busy}>{columns.map((column) => <option key={column} value={column}>{column}</option>)}</select></label><label>Current type<span className="type-pill">{dataset?.data_types?.[selectedColumn] || 'Unknown'}</span></label><label>Target type<select value={targetType} onChange={(event) => setTargetType(event.target.value)} disabled={busy}>{DATA_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label></div><button className="secondary-button" onClick={convertType} disabled={busy || !selectedColumn}>Convert column type</button></section></div>
+    <div className="preprocess-secondary-grid"><section className="panel cleaning-card"><div className="card-heading"><div className="stat-icon orange"><GitBranch size={17} /></div><div><h2>Duplicate rows and category variants</h2><p>{profile?.duplicate_rows?.toLocaleString() ?? '—'} exact duplicate rows reported. Cleanup also consolidates case or whitespace variants such as <strong>Hyderabad</strong>, <strong>hyderabad</strong>, and <strong>HYDERABAD</strong>.</p></div></div><div className="warning-note">Rows with the same city are not duplicates by themselves. Cleanup normalizes text categories first, then removes records that are identical across every column.</div>{duplicatePreview && <p className="preview-note" role="status">Preview: {Number(duplicatePreview.duplicate_count ?? 0).toLocaleString()} rows will be removed after normalization; {Number(duplicatePreview.normalized_cells ?? 0).toLocaleString()} text values will be normalized. Estimated result: {Number(duplicatePreview.estimated_rows_after_removal ?? 0).toLocaleString()} rows.</p>}<button className="danger-button" onClick={() => { void removeDuplicates(); }} disabled={busy || duplicatePreviewLoading || !profile?.duplicate_rows}>{duplicatePreviewLoading ? 'Inspecting variants...' : busy ? 'Applying...' : 'Preview and clean duplicates'}</button></section><section className="panel cleaning-card"><div className="card-heading"><div className="stat-icon teal"><WandSparkles size={17} /></div><div><h2>Data type conversion</h2><p>Make a selected column compatible with analysis.</p></div></div><div className="compact-form"><label>Column<select value={selectedColumn} onChange={(event) => setSelectedColumn(event.target.value)} disabled={busy}>{columns.map((column) => <option key={column} value={column}>{column}</option>)}</select></label><label>Current type<span className="type-pill">{dataset?.data_types?.[selectedColumn] || 'Unknown'}</span></label><label>Target type<select value={targetType} onChange={(event) => setTargetType(event.target.value)} disabled={busy}>{DATA_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label></div><button className="secondary-button" onClick={convertType} disabled={busy || !selectedColumn}>Convert column type</button></section></div>
     <section className="panel manage-columns"><div className="section-kicker"><div><div className="eyebrow">DATA STRUCTURE</div><h2>Manage columns</h2><p>Rename, remove, or create features without leaving the cleaning workspace.</p></div></div><div className="manage-column-grid"><div className="manage-subcard"><h3>Rename column</h3><label>Current column<select value={selectedColumn} onChange={(event) => setSelectedColumn(event.target.value)} disabled={busy}>{columns.map((column) => <option key={column} value={column}>{column}</option>)}</select></label><label>New name<input value={renamedColumn} onChange={(event) => setRenamedColumn(event.target.value)} disabled={busy} /></label><button className="secondary-button" onClick={rename} disabled={busy || !selectedColumn || !renamedColumn}>Rename column</button></div><div className="manage-subcard destructive-subcard"><h3>Delete column</h3><p>This removes the selected column from the active dataset.</p><button className="danger-button" onClick={removeColumn} disabled={busy || !selectedColumn}><Trash2 size={14} /> Delete {selectedColumn || 'column'}</button></div><div className="manage-subcard calculated-subcard"><h3>Calculated column</h3><label>New column<input value={newColumnName} onChange={(event) => setNewColumnName(event.target.value)} placeholder="Column name" disabled={busy} /></label><label>Expression<input value={expression} onChange={(event) => setExpression(event.target.value)} placeholder="Price * Quantity" disabled={busy} /></label><button className="primary-button" onClick={addColumn} disabled={busy || !newColumnName || !expression}><Plus size={15} /> Create calculated column</button></div></div></section>
     <div className="tip-banner"><div className="tip-icon"><WandSparkles size={18} /></div><div><strong>Verify after every operation</strong><span>Refresh the dataset preview and health views to confirm backend changes were applied.</span></div></div>
   </>;

@@ -13,6 +13,16 @@
 .assistant-suggestion-grid button:hover { border-color: #9cccaa; background: var(--green-wash); color: var(--primary-green); }
 .assistant-message-user .assistant-message-avatar { background: #bbf7d0; color: #166534; }
 .assistant-message-user .assistant-message-content { background: var(--primary-green); border-color: var(--primary-green); }
+.assistant-message-content p { margin: 0 0 8px; }
+.assistant-message-content p:last-child { margin-bottom: 0; }
+.assistant-message-content h1, .assistant-message-content h2, .assistant-message-content h3 { margin: 0 0 8px; color: inherit; font-size: 1.05em; }
+.assistant-message-content ul, .assistant-message-content ol { margin: 6px 0 8px 18px; padding: 0; }
+.assistant-message-content li { margin: 3px 0; }
+.assistant-message-content pre { overflow-x: auto; margin: 8px 0; padding: 8px; border-radius: 5px; background: #183047; color: #f5f8fb; }
+.assistant-message-content code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.assistant-message-content :not(pre) > code { padding: 1px 3px; border-radius: 3px; background: #e9eff4; }
+.assistant-message-content table { display: block; overflow-x: auto; border-collapse: collapse; margin: 8px 0; }
+.assistant-message-content th, .assistant-message-content td { border: 1px solid #dbe5ec; padding: 4px 6px; white-space: nowrap; }
 .assistant-tool-tags span, .assistant-citation-pill { background: var(--green-light); color: #166534; }
 .assistant-tool-activity { border-color: #cfe8d5; background: var(--green-wash); }
 .assistant-activity-row .spin { color: var(--secondary-green); }

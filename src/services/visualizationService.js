@@ -8,3 +8,12 @@ export const getVisualizationRecommendations = async (datasetId) => {
     throw new Error(getApiErrorMessage(error));
   }
 };
+
+export const getVisualizationPreview = async (datasetId, payload) => {
+  try {
+    const response = await api.post(`/datasets/${datasetId}/visualizations/preview`, payload);
+    return response.data;
+  } catch (error) {
+    throw new Error(getApiErrorMessage(error));
+  }
+};

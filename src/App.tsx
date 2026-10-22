@@ -302,6 +302,8 @@ function UploadPage({ onUpload, onUploadFile, onNotice }: { onUpload: () => void
 
 function DatasetPage() {
   const { activeDatasetId } = useDataset();
+  const [profile, setProfile] = useState<DatasetProfile | null>(null);
+  const profileRef = useRef<DatasetProfile | null>(null);
   const [rows, setRows] = useState<unknown[][]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [totalRows, setTotalRows] = useState(0);
@@ -318,8 +320,15 @@ function DatasetPage() {
     setError('');
     const fetchPreview = async () => {
       try {
-        const response = await getDatasetPreview(activeDatasetId, { limit, offset });
+        const [response, nextProfile] = await Promise.all([
+          getDatasetPreview(activeDatasetId, { limit, offset }),
+          offset === 0 ? getDatasetProfile(activeDatasetId) : Promise.resolve(profileRef.current),
+        ]);
         if (cancelled) return;
+        if (nextProfile) {
+          profileRef.current = nextProfile;
+          setProfile(nextProfile);
+        }
         const previewRows = Array.isArray(response?.rows) ? response.rows : [];
         setRows(previewRows.map((row: unknown) => Array.isArray(row) ? row : Object.values(row as Record<string, unknown>)));
         setColumns(Array.isArray(response?.columns) ? response.columns : []);
@@ -343,11 +352,11 @@ function DatasetPage() {
   const pageCount = Math.max(1, Math.ceil(totalRows / limit));
   const currentPage = Math.floor(offset / limit) + 1;
 
-  return <><PageHeading title="Dataset preview" description="Review the rows and columns in your active dataset." action={<div className="button-row"><button className="secondary-button" onClick={() => downloadDataset(activeDatasetId, 'csv')}><Download size={15} /> Download CSV</button><button className="primary-button" onClick={() => downloadDataset(activeDatasetId, 'xlsx')}><Download size={15} /> Download Excel</button></div>} /><section className="panel table-panel"><div className="table-toolbar"><div className="table-search"><Search size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search this page..." /></div><span className="muted">{loading ? 'Loading...' : `${offset + 1}-${Math.min(offset + rows.length, totalRows)} of ${totalRows} rows`}</span></div>{error && <p role="alert">{error}</p>}<div className="table-scroll"><table><thead><tr>{columns.map((head) => <th key={head}>{head}</th>)}</tr></thead><tbody>{filteredRows.map((row, rowIndex) => <tr key={`${String(row[0] ?? rowIndex)}-${rowIndex}`}>{row.map((cell, index) => <td key={`${String(row[0] ?? rowIndex)}-${index}`} className={index === 3 ? 'revenue-cell' : ''}>{String(cell ?? '')}</td>)}</tr>)}</tbody></table></div><div className="pagination"><span>{filteredRows.length} rows on this page</span><div><button className="page-button" disabled={currentPage <= 1 || loading} onClick={() => setOffset(Math.max(0, offset - limit))}>‹</button>{Array.from({ length: Math.min(pageCount, 4) }, (_, index) => index + 1).map((number) => <button className={`page-button ${number === currentPage ? 'selected' : ''}`} key={number} onClick={() => setOffset((number - 1) * limit)}>{number}</button>)}<button className="page-button" disabled={currentPage >= pageCount || loading} onClick={() => setOffset(Math.min((pageCount - 1) * limit, offset + limit))}>›</button></div></div></section></>;
+  return <><PageHeading title="Dataset preview" description="Review the rows and backend profile for your active dataset." action={<div className="button-row"><button className="secondary-button" onClick={() => downloadDataset(activeDatasetId, 'csv')}><Download size={15} /> Download CSV</button><button className="primary-button" onClick={() => downloadDataset(activeDatasetId, 'xlsx')}><Download size={15} /> Download Excel</button></div>} /><section className="panel table-panel"><div className="table-toolbar"><div className="table-search"><Search size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search this page..." /></div><span className="muted">{loading ? 'Loading...' : `${offset + 1}-${Math.min(offset + rows.length, totalRows)} of ${totalRows} rows`}</span></div>{error && <p role="alert">{error}</p>}<div className="table-scroll"><table><thead><tr>{columns.map((head) => <th key={head}>{head}</th>)}</tr></thead><tbody>{filteredRows.map((row, rowIndex) => <tr key={`${String(row[0] ?? rowIndex)}-${rowIndex}`}>{row.map((cell, index) => <td key={`${String(row[0] ?? rowIndex)}-${index}`} className={index === 3 ? 'revenue-cell' : ''}>{String(cell ?? '')}</td>)}</tr>)}</tbody></table></div><div className="pagination"><span>{filteredRows.length} rows on this page</span><div><button className="page-button" disabled={currentPage <= 1 || loading} onClick={() => setOffset(Math.max(0, offset - limit))}>‹</button>{Array.from({ length: Math.min(pageCount, 4) }, (_, index) => index + 1).map((number) => <button className={`page-button ${number === currentPage ? 'selected' : ''}`} key={number} onClick={() => setOffset((number - 1) * limit)}>{number}</button>)}<button className="page-button" disabled={currentPage >= pageCount || loading} onClick={() => setOffset(Math.min((pageCount - 1) * limit, offset + limit))}>›</button></div></div></section>{profile && <section className="panel table-panel"><PanelTitle title="Backend column profile" /><div className="stats-quality-strip"><div><span>Rows</span><strong>{profile.total_rows.toLocaleString()}</strong></div><div><span>Columns</span><strong>{profile.total_columns.toLocaleString()}</strong></div><div><span>Missing cells</span><strong>{profile.missing_values.total.toLocaleString()}</strong></div><div><span>Duplicate rows</span><strong>{profile.duplicate_rows.toLocaleString()}</strong></div></div><div className="table-scroll"><table className="compact-table"><thead><tr>{['Column', 'Type', 'Non-missing', 'Missing', 'Missing %', 'Distinct', 'Mean / mode'].map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{profile.column_profiles.map((column) => <tr key={column.name}><td className="strong-cell">{column.name}</td><td>{column.kind} · {column.dtype}</td><td>{column.count.toLocaleString()}</td><td>{column.null_count.toLocaleString()}</td><td>{column.null_percentage}%</td><td>{column.unique_count.toLocaleString()}</td><td>{column.kind === 'numeric' ? String(column.mean ?? '—') : String(column.mode ?? '—')}</td></tr>)}</tbody></table></div></section>}</>;
 }
 
 type StatisticsResponse = {
-  numerical: Record<string, { count: number; mean: number | null; median: number | null; minimum: number | null; maximum: number | null; standard_deviation: number | null; q1?: number | null; q3?: number | null }>;
+  numerical: Record<string, { count: number; missing: number; mean: number | null; median: number | null; minimum: number | null; maximum: number | null; standard_deviation: number | null; variance: number | null; q1?: number | null; q3?: number | null; iqr?: number | null; range?: number | null; outlier_count?: number; outlier_percentage?: number }>;
   categorical: Record<string, { count?: number; unique_values: number; most_frequent_value: string | number | null; most_frequent_count: number }>;
 };
 
@@ -381,20 +390,20 @@ function StatisticsPage({ datasetId }: { datasetId: string | null }) {
   const numericalRows = Object.entries(statistics?.numerical ?? {}).map(([column, values]) => [
     column,
     format(values.count),
-    format(profile?.missing_values.by_column[column] ?? 0),
+    format(values.missing),
     format(values.mean),
     format(values.median),
     format(values.standard_deviation),
-    format(values.standard_deviation == null ? null : values.standard_deviation ** 2),
+    format(values.variance),
     format(values.minimum),
     format(values.q1),
     format(values.q3),
-    format(values.q1 == null || values.q3 == null ? null : values.q3 - values.q1),
+    format(values.iqr),
     format(values.maximum),
-    format(values.minimum == null || values.maximum == null ? null : values.maximum - values.minimum),
+    format(values.range),
   ]);
   const categoricalRows = Object.entries(statistics?.categorical ?? {}).map(([column, values]) => [
-    column, format(values.count), format(profile?.missing_values.by_column[column] ?? 0), format(values.unique_values), String(values.most_frequent_value ?? '—'), format(values.most_frequent_count),
+    column, format(values.count), format(profile?.missing_values.by_column[column]), format(values.unique_values), String(values.most_frequent_value ?? '—'), format(values.most_frequent_count),
   ]);
 
   return <>
@@ -425,12 +434,24 @@ type HealthReport = {
   missing_percentage: number;
   duplicate_percentage: number;
   outlier_percentage: number;
+  column_health?: Array<{
+    column: string;
+    status: string;
+    missing: number;
+    missing_percentage: number;
+    duplicates: number | null;
+    outliers: number | null;
+    dtype_concerns: string | null;
+    reasons: string[];
+  }>;
+  recommendations?: string[];
+  scoring?: Record<string, string>;
 };
 
 function HealthPage({ datasetId }: { datasetId: string | null }) {
   const [report, setReport] = useState<HealthReport | null>(null);
   const [profile, setProfile] = useState<DatasetProfile | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(datasetId));
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -449,28 +470,24 @@ function HealthPage({ datasetId }: { datasetId: string | null }) {
   }, [datasetId]);
 
   if (!datasetId) return <EmptyDatasetState helper="Upload a dataset to check its data health." />;
-  if (error) return <><PageHeading title="Data health" description="Review dataset quality metrics returned by the backend." /><section className="panel"><p role="alert">Unable to load the data health report. Please try again.</p></section></>;
+  if (error) return <><PageHeading title="Data health" description="Review dataset quality metrics returned by the backend." /><section className="panel"><p role="alert">Unable to load the data health report: {error}</p></section></>;
 
   const metrics = report ? [
     { label: 'Completeness', value: report.completeness, color: 'green' },
     { label: 'Consistency', value: report.consistency, color: 'blue' },
     { label: 'Validity', value: report.validity, color: 'orange' },
   ] : [];
-  const columns = profile ? [...new Set([
-    ...profile.numerical_columns,
-    ...profile.categorical_columns,
-    ...profile.datetime_columns,
-    ...Object.keys(profile.data_types),
-  ])] : [];
+  const columns = report?.column_health?.map((item) => item.column) ?? profile?.column_profiles?.map((item) => item.name) ?? [];
   const columnRows = columns.map((column) => {
     const missing = profile?.missing_values.by_column[column] ?? 0;
-    return [column, profile?.data_types[column] || 'Unknown', missing.toLocaleString(), (profile?.unique_values[column] ?? '—').toLocaleString(), 'Not provided', missing > 0 ? 'Review missing values' : 'No missing values reported'];
+    const healthColumn = report?.column_health?.find((item) => item.column === column);
+    const unique = profile?.unique_values[column];
+    return [column, profile?.data_types[column] || 'Unknown', missing == null ? 'Unavailable' : missing.toLocaleString(), unique == null ? 'Unavailable' : unique.toLocaleString(), healthColumn?.outliers == null ? 'Unavailable' : healthColumn.outliers.toLocaleString(), healthColumn?.reasons?.join('; ') || (missing > 0 ? 'Review missing values' : 'No issues reported')];
   });
   const recommendations = [
     ...(profile && profile.missing_values.total > 0 ? [`Review ${profile.missing_values.total.toLocaleString()} missing cells across the dataset.`] : []),
     ...(profile && profile.duplicate_rows > 0 ? [`Review ${profile.duplicate_rows.toLocaleString()} duplicate rows before analysis.`] : []),
-    ...(report && report.outlier_percentage > 0 ? [`The backend reports an outlier share of ${report.outlier_percentage}%; inspect affected values before drawing conclusions.`] : []),
-    ...(!loading && profile && profile.missing_values.total === 0 && profile.duplicate_rows === 0 ? ['The backend reports no missing cells or duplicate rows. Review aggregate validity and consistency scores for remaining quality signals.'] : []),
+    ...(report?.recommendations ?? []),
   ];
   const score = report?.overall_score ?? 0;
   const scoreDegrees = Math.max(0, Math.min(100, score)) * 3.6;
@@ -488,14 +505,14 @@ function HealthPage({ datasetId }: { datasetId: string | null }) {
       <section className="panel health-indicators">
         <PanelTitle title="Quality indicators" />
         <div className="health-indicator-grid">
-          <div><span>Missing cells</span><strong>{profile.missing_values.total.toLocaleString()}</strong><small>{report.missing_percentage}% of dataset cells</small></div>
+          <div><span>Missing cells</span><strong>{profile.missing_values.total.toLocaleString()}</strong><small>{report.missing_percentage}% of dataset cells across {Object.values(profile.missing_values.by_column).filter((count) => count > 0).length} affected columns</small></div>
           <div><span>Duplicate rows</span><strong>{profile.duplicate_rows.toLocaleString()}</strong><small>{report.duplicate_percentage}% of dataset rows</small></div>
           <div><span>Outlier share</span><strong>{report.outlier_percentage}%</strong><small>Aggregate value from backend; column detail unavailable</small></div>
           <div><span>Invalid values</span><strong>Not provided</strong><small>The current health API does not return this count</small></div>
         </div>
       </section>
       <section className="panel health-columns">
-        <div className="health-section-heading"><div><h2>Column-level health</h2><p>{columns.length} columns described by the current dataset profile.</p></div><span>Outliers per column are not available from the current API.</span></div>
+        <div className="health-section-heading"><div><h2>Column-level health</h2><p>{columns.length} columns described by the current dataset profile.</p></div><span>Counts and warnings are returned by the backend profile and health endpoints.</span></div>
         {columnRows.length ? <div className="compact-table-scroll"><table className="compact-table health-table"><thead><tr>{['Column name', 'Data type', 'Missing', 'Unique', 'Outliers', 'Quality status'].map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{columnRows.map((row, index) => <tr key={`${row[0]}-${index}`}>{row.map((cell, cellIndex) => <td className={cellIndex === 0 ? 'strong-cell' : ''} key={`${cellIndex}-${cell}`}>{cell}</td>)}</tr>)}</tbody></table></div> : <p className="muted">No column metadata was returned for this dataset.</p>}
       </section>
       <section className="panel health-recommendations">

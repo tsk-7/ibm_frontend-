@@ -1,6 +1,9 @@
 import { Bot, UserRound } from 'lucide-react';
 import type { ChatTurn } from './assistantApi';
 import { Citation } from './Citation';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 
 export function ChatMessage({ turn }: { turn: ChatTurn }) {
   const isUser = turn.role === 'user';
@@ -8,7 +11,7 @@ export function ChatMessage({ turn }: { turn: ChatTurn }) {
     <div className="assistant-message-avatar">{isUser ? <UserRound size={13} /> : <Bot size={14} />}</div>
     <div className="assistant-message-body">
       <div className="assistant-message-label">{isUser ? 'You' : 'CleanVisual Assistant'}</div>
-      <div className="assistant-message-content">{turn.content}</div>
+      <div className="assistant-message-content"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>{turn.content}</ReactMarkdown></div>
       {turn.toolsUsed && turn.toolsUsed.length > 0 && <div className="assistant-tool-tags">{turn.toolsUsed.map((tool) => <span key={tool}>{tool.split('_').join(' ')}</span>)}</div>}
       {turn.citations && turn.citations.length > 0 && <div className="assistant-citations"><strong>Knowledge source</strong>{turn.citations.slice(0, 3).map((citation) => <Citation key={`${citation.source}-${citation.chunk_id || citation.title}`} citation={citation} />)}</div>}
     </div>

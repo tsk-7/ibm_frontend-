@@ -18,6 +18,15 @@ export const processDuplicateRows = async (datasetId, payload = {}) => {
   }
 };
 
+export const previewDuplicateRows = async (datasetId, payload = {}) => {
+  try {
+    const response = await api.post(`/datasets/${datasetId}/preprocess/duplicates/preview`, payload);
+    return response.data;
+  } catch (error) {
+    throw new Error(getApiErrorMessage(error));
+  }
+};
+
 export const processDtype = async (datasetId, payload) => {
   try {
     const response = await api.post(`/datasets/${datasetId}/preprocess/dtype`, payload);

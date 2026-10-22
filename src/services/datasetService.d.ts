@@ -18,6 +18,30 @@ export interface DatasetProfile {
   unique_values: Record<string, number>;
   memory_usage_bytes: number;
   data_types: Record<string, string>;
+  column_profiles: Array<{
+    name: string;
+    dtype: string;
+    kind: string;
+    count: number;
+    null_count: number;
+    null_percentage: number;
+    unique_count: number;
+    mean?: number | null;
+    median?: number | null;
+    mode?: unknown;
+    std?: number | null;
+    variance?: number | null;
+    min?: unknown;
+    max?: unknown;
+    q1?: number | null;
+    q3?: number | null;
+    iqr?: number | null;
+    range?: number | null;
+    outlier_count?: number;
+    outlier_percentage?: number;
+    top_values?: Array<{ value: unknown; count: number; percentage: number }>;
+    mode_frequency?: number;
+  }>;
 }
 
 export function uploadDataset(file: File): Promise<{ dataset_id: string; filename: string; rows: number; columns: number; message: string }>;
